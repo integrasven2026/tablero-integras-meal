@@ -6,12 +6,25 @@ import plotly.express as px
 # CONFIGURACIÓN DE PÁGINA
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Tablero MEAL - COOPI",
+    page_title="Consolidación Histórica de Participantes y Atenciones - COOPI Venezuela",
     layout="wide"
 )
 
-st.title("Tablero de Monitoreo y Evaluación (MEAL)")
-st.markdown("### Consolidación Histórica de Participantes y Atenciones - COOPI")
+# ---------------------------------------------------------
+# ENCABEZADO CON LOGO DE COOPI EN LA PARTE SUPERIOR DERECHA
+# ---------------------------------------------------------
+col_titulo, col_logo = st.columns([3, 1])
+
+with col_titulo:
+    st.title("Consolidación Histórica de Participantes y Atenciones - COOPI Venezuela")
+
+with col_logo:
+    st.image(
+        "https://coopi.org/images/logo_coopi.png",
+        width=220
+    )
+
+st.markdown("---")
 
 # ---------------------------------------------------------
 # CARGA DE ARCHIVOS DESDE LA BARRA LATERAL (UPLOADER)
@@ -48,7 +61,10 @@ def cargar_y_procesar_datos(f1_file, f2_file):
         'municipio': m1['Municipio'],
         'parroquia': m1['Parroquia'],
         'servicio_actividad': m1['Actividad:'],
-        'anio': m1['anio'].fillna(2026).astype(int)
+        'anio': m1['anio'].fillna(2026).astype(int),
+        'discapacidad': m1.get('discapacidad', pd.Series(['No']*len(m1))),
+        'indigena': m1.get('indigena', pd.Series(['No']*len(m1))),
+        'embarazada': m1.get('embarazada', pd.Series(['No']*len(m1)))
     })
 
     # Proyecto 2: Eco Resiliencia Costera
@@ -74,13 +90,16 @@ def cargar_y_procesar_datos(f1_file, f2_file):
         'municipio': m2['Municipio'],
         'parroquia': m2['Parroquia'],
         'servicio_actividad': m2['Actividad:'],
-        'anio': m2['anio'].fillna(2026).astype(int)
+        'anio': m2['anio'].fillna(2026).astype(int),
+        'discapacidad': m2.get('discapacidad', pd.Series(['No']*len(m2))),
+        'indigena': m2.get('indigena', pd.Series(['No']*len(m2))),
+        'embarazada': m2.get('embarazada', pd.Series(['No']*len(m2)))
     })
 
     base = pd.concat([df1_clean, df2_clean], ignore_index=True)
 
     base['sexo_std'] = base['sexo'].astype(str).str.strip().str.capitalize()
-    base['estado_std'] = base['estado'].replace({'VE19': 'Sucre'})
+    base['estado_std'] = base['estado'].replace({'VE19': 'Sucre', 'SUCRE': 'Sucre'})
     base['municipio_std'] = base['municipio'].replace({'VE1914': 'Mariño', 'VE1906': 'Bermúdez', 'VE1911': 'Sucre'})
 
     base['edad_num'] = pd.to_numeric(base['edad'], errors='coerce')
@@ -128,6 +147,7 @@ if f1 is not None and f2 is not None:
 
     filtro_proyecto = st.sidebar.multiselect("Proyecto:", options=sorted(base_data['proyecto'].unique()), default=sorted(base_data['proyecto'].unique()))
     filtro_anio = st.sidebar.multiselect("Año:", options=sorted(base_data['anio'].unique()), default=sorted(base_data['anio'].unique()))
+    filtro_estado = st.sidebar.multiselect("Estado:", options=sorted(base_data['estado_std'].unique()), default=sorted(base_data['estado_std'].unique()))
     filtro_municipio = st.sidebar.multiselect("Municipio:", options=sorted(base_data['municipio_std'].unique()), default=sorted(base_data['municipio_std'].unique()))
     filtro_sector = st.sidebar.multiselect("Sector MEAL:", options=sorted(base_data['sector_servicio'].unique()), default=sorted(base_data['sector_servicio'].unique()))
 
@@ -135,25 +155,52 @@ if f1 is not None and f2 is not None:
     df_filtrado = base_data[
         (base_data['proyecto'].isin(filtro_proyecto)) &
         (base_data['anio'].isin(filtro_anio)) &
+        (base_data['estado_std'].isin(filtro_estado)) &
         (base_data['municipio_std'].isin(filtro_municipio)) &
         (base_data['sector_servicio'].isin(filtro_sector))
     ]
 
     df_unicos = df_filtrado.drop_duplicates(subset=['codigo_unico'], keep='first')
+    total_u = max(len(df_unicos), 1)
 
     # ---------------------------------------------------------
-    # METRICAS
+    # MÉTRICAS GENERALES DE ATENCIÓN Y ALCANCE
     # ---------------------------------------------------------
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Atenciones Prestadas", f"{len(df_filtrado):,}")
-    col2.metric("Participantes Únicos", f"{len(df_unicos):,}")
-    col3.metric("Municipios Atendidos", f"{df_filtrado['municipio_std'].nunique()}")
-    col4.metric("Sectores de Respuesta", f"{df_filtrado['sector_servicio'].nunique()}")
+    st.subheader("General de Atenciones y Cobertura")
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Total Atenciones", f"{len(df_filtrado):,}")
+    m2.metric("Participantes Únicos", f"{len(df_unicos):,}")
+    m3.metric("Estados Atendidos", f"{df_filtrado['estado_std'].nunique()}")
+    m4.metric("Municipios Atendidos", f"{df_filtrado['municipio_std'].nunique()}")
+    m5.metric("Sectores MEAL", f"{df_filtrado['sector_servicio'].nunique()}")
 
     st.markdown("---")
 
     # ---------------------------------------------------------
-    # GRÁFICOS CON VALORES VISIBLES EN LAS BARRAS
+    # MÉTRICAS EN PORCENTAJE (DEMOGRAFÍA Y VULNERABILIDAD)
+    # ---------------------------------------------------------
+    st.subheader("Distribución de Participantes por Grupos de Vulnerabilidad (%)")
+    
+    pct_mujeres = (len(df_unicos[df_unicos['sexo_std'] == 'Mujer']) / total_u) * 100
+    pct_hombres = (len(df_unicos[df_unicos['sexo_std'] == 'Hombre']) / total_u) * 100
+    pct_ninos = (len(df_unicos[df_unicos['rango_etario'] == '0-17 años']) / total_u) * 100
+    
+    pct_disc = (len(df_unicos[df_unicos['discapacidad'].astype(str).str.lower().isin(['si', 'sí', 'true', '1'])]) / total_u) * 100
+    pct_indigena = (len(df_unicos[df_unicos['indigena'].astype(str).str.lower().isin(['si', 'sí', 'true', '1'])]) / total_u) * 100
+    pct_emb = (len(df_unicos[df_unicos['embarazada'].astype(str).str.lower().isin(['si', 'sí', 'true', '1'])]) / total_u) * 100
+
+    v1, v2, v3, v4, v5, v6 = st.columns(6)
+    v1.metric("% Mujeres", f"{pct_mujeres:.1f}%")
+    v2.metric("% Hombres", f"{pct_hombres:.1f}%")
+    v3.metric("% Niñas y Niños", f"{pct_ninos:.1f}%")
+    v4.metric("% Discapacidad", f"{pct_disc:.1f}%")
+    v5.metric("% Indígenas", f"{pct_indigena:.1f}%")
+    v6.metric("% Embarazadas/Lact.", f"{pct_emb:.1f}%")
+
+    st.markdown("---")
+
+    # ---------------------------------------------------------
+    # GRÁFICOS CON VALOR + PORCENTAJE EN LAS BARRAS
     # ---------------------------------------------------------
     col_g1, col_g2 = st.columns(2)
 
@@ -161,14 +208,16 @@ if f1 is not None and f2 is not None:
         st.subheader("Desglose por Sexo y Rango Etario (Únicos)")
         
         df_demo = df_unicos.groupby(['rango_etario', 'sexo_std'], observed=False).size().reset_index(name='count')
-        
+        df_demo['porcentaje'] = (df_demo['count'] / total_u) * 100
+        df_demo['etiqueta'] = df_demo.apply(lambda r: f"{r['count']:,} ({r['porcentaje']:.1f}%)" if r['count'] > 0 else "", axis=1)
+
         fig_demo = px.bar(
             df_demo, 
             x="rango_etario", 
             y="count",
             color="sexo_std", 
             barmode="group",
-            text="count",
+            text="etiqueta",
             labels={"rango_etario": "Rango de Edad", "sexo_std": "Sexo", "count": "Cantidad"},
             color_discrete_sequence=px.colors.qualitative.Set2
         )
@@ -190,6 +239,9 @@ if f1 is not None and f2 is not None:
 
     st.markdown("---")
 
+    # ---------------------------------------------------------
+    # MAPA Y COBERTURA POR ESTADO Y MUNICIPIO
+    # ---------------------------------------------------------
     col_m1, col_m2 = st.columns(2)
 
     with col_m1:
@@ -214,20 +266,41 @@ if f1 is not None and f2 is not None:
         st.plotly_chart(fig_map, width="stretch")
 
     with col_m2:
-        st.subheader("Alcance por Municipio")
-        df_mun = df_unicos['municipio_std'].value_counts().reset_index()
-        
-        fig_mun = px.bar(
-            df_mun,
+        st.subheader("Alcance por Estado")
+        df_est = df_unicos['estado_std'].value_counts().reset_index()
+        df_est['porcentaje'] = (df_est['count'] / total_u) * 100
+        df_est['etiqueta'] = df_est.apply(lambda r: f"{r['count']:,} ({r['porcentaje']:.1f}%)", axis=1)
+
+        fig_est = px.bar(
+            df_est,
             x="count", 
-            y="municipio_std", 
+            y="estado_std", 
             orientation="h",
-            text="count",
-            labels={"municipio_std": "Municipio", "count": "Cantidad"},
-            color_discrete_sequence=['#2E86C1']
+            text="etiqueta",
+            labels={"estado_std": "Estado", "count": "Cantidad"},
+            color_discrete_sequence=['#27AE60']
         )
-        fig_mun.update_traces(textposition='outside')
-        st.plotly_chart(fig_mun, width="stretch")
+        fig_est.update_traces(textposition='outside')
+        st.plotly_chart(fig_est, width="stretch")
+
+    st.markdown("---")
+
+    st.subheader("Alcance por Municipio")
+    df_mun = df_unicos['municipio_std'].value_counts().reset_index()
+    df_mun['porcentaje'] = (df_mun['count'] / total_u) * 100
+    df_mun['etiqueta'] = df_mun.apply(lambda r: f"{r['count']:,} ({r['porcentaje']:.1f}%)", axis=1)
+
+    fig_mun = px.bar(
+        df_mun,
+        x="count", 
+        y="municipio_std", 
+        orientation="h",
+        text="etiqueta",
+        labels={"municipio_std": "Municipio", "count": "Cantidad"},
+        color_discrete_sequence=['#2E86C1']
+    )
+    fig_mun.update_traces(textposition='outside')
+    st.plotly_chart(fig_mun, width="stretch")
 
     st.markdown("---")
 
@@ -245,7 +318,7 @@ if f1 is not None and f2 is not None:
     st.download_button(
         label="Descargar Base Anónima de Participantes Únicos (CSV)",
         data=csv,
-        file_name="Participantes_Unicos_COOPI.csv",
+        file_name="Participantes_Unicos_COOPI_Venezuela.csv",
         mime="text/csv"
     )
 else:
