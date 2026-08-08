@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -7,18 +6,17 @@ import plotly.express as px
 # CONFIGURACIÓN DE PÁGINA
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Tablero MEAL - Consorcio INTEGRAS / COOPI",
-    page_icon="📊",
+    page_title="Tablero MEAL - COOPI",
     layout="wide"
 )
 
-st.title("📊 Tablero de Monitoreo y Evaluación (MEAL)")
-st.markdown("### Consolidación Histórica de Participantes y Atenciones - COOPI / INTEGRAS")
+st.title("Tablero de Monitoreo y Evaluación (MEAL)")
+st.markdown("### Consolidación Histórica de Participantes y Atenciones - COOPI")
 
 # ---------------------------------------------------------
 # CARGA DE ARCHIVOS DESDE LA BARRA LATERAL (UPLOADER)
 # ---------------------------------------------------------
-st.sidebar.header("📁 Cargar Bases de Datos SIGA")
+st.sidebar.header("Cargar Bases de Datos SIGA")
 f1 = st.sidebar.file_uploader("1. Excel Agua Para La Vida", type=["xlsx"])
 f2 = st.sidebar.file_uploader("2. Excel Eco Resiliencia", type=["xlsx"])
 
@@ -27,10 +25,18 @@ f2 = st.sidebar.file_uploader("2. Excel Eco Resiliencia", type=["xlsx"])
 # ---------------------------------------------------------
 @st.cache_data
 def cargar_y_procesar_datos(f1_file, f2_file):
-    # Proyecto 1
+    # Proyecto 1: Agua Para La Vida
     df1_act = pd.read_excel(f1_file, sheet_name=0)
     df1_ben = pd.read_excel(f1_file, sheet_name='group_beneficiario')
-    m1 = df1_ben.merge(df1_act[['_index', 'Estado', 'Municipio', 'Parroquia', 'Actividad:']], left_on='_parent_index', right_on='_index', how='left')
+    
+    if '_submission_time' in df1_act.columns:
+        df1_act['anio'] = pd.to_datetime(df1_act['_submission_time'], errors='coerce').dt.year
+    elif 'today' in df1_act.columns:
+        df1_act['anio'] = pd.to_datetime(df1_act['today'], errors='coerce').dt.year
+    else:
+        df1_act['anio'] = 2026
+
+    m1 = df1_ben.merge(df1_act[['_index', 'Estado', 'Municipio', 'Parroquia', 'Actividad:', 'anio']], left_on='_parent_index', right_on='_index', how='left')
 
     df1_clean = pd.DataFrame({
         'proyecto': 'Agua Para La Vida',
@@ -41,13 +47,22 @@ def cargar_y_procesar_datos(f1_file, f2_file):
         'estado': m1['Estado'],
         'municipio': m1['Municipio'],
         'parroquia': m1['Parroquia'],
-        'servicio_actividad': m1['Actividad:']
+        'servicio_actividad': m1['Actividad:'],
+        'anio': m1['anio'].fillna(2026).astype(int)
     })
 
-    # Proyecto 2
+    # Proyecto 2: Eco Resiliencia Costera
     df2_act = pd.read_excel(f2_file, sheet_name=0)
     df2_ben = pd.read_excel(f2_file, sheet_name='group_beneficiario')
-    m2 = df2_ben.merge(df2_act[['_index', 'Estado', 'Municipio', 'Parroquia', 'Actividad:']], left_on='_parent_index', right_on='_index', how='left')
+
+    if '_submission_time' in df2_act.columns:
+        df2_act['anio'] = pd.to_datetime(df2_act['_submission_time'], errors='coerce').dt.year
+    elif 'today' in df2_act.columns:
+        df2_act['anio'] = pd.to_datetime(df2_act['today'], errors='coerce').dt.year
+    else:
+        df2_act['anio'] = 2026
+
+    m2 = df2_ben.merge(df2_act[['_index', 'Estado', 'Municipio', 'Parroquia', 'Actividad:', 'anio']], left_on='_parent_index', right_on='_index', how='left')
 
     df2_clean = pd.DataFrame({
         'proyecto': 'Eco Resiliencia Costera',
@@ -58,7 +73,8 @@ def cargar_y_procesar_datos(f1_file, f2_file):
         'estado': m2['Estado'],
         'municipio': m2['Municipio'],
         'parroquia': m2['Parroquia'],
-        'servicio_actividad': m2['Actividad:']
+        'servicio_actividad': m2['Actividad:'],
+        'anio': m2['anio'].fillna(2026).astype(int)
     })
 
     base = pd.concat([df1_clean, df2_clean], ignore_index=True)
@@ -108,16 +124,17 @@ if f1 is not None and f2 is not None:
     # FILTROS LATERALES
     # ---------------------------------------------------------
     st.sidebar.markdown("---")
-    st.sidebar.header("🔍 Filtros de Navegación")
+    st.sidebar.header("Filtros de Navegación")
 
-    filtro_socio = st.sidebar.multiselect("Socio:", options=base_data['socio'].unique(), default=base_data['socio'].unique())
-    filtro_proyecto = st.sidebar.multiselect("Proyecto:", options=base_data['proyecto'].unique(), default=base_data['proyecto'].unique())
-    filtro_municipio = st.sidebar.multiselect("Municipio:", options=base_data['municipio_std'].unique(), default=base_data['municipio_std'].unique())
-    filtro_sector = st.sidebar.multiselect("Sector MEAL:", options=base_data['sector_servicio'].unique(), default=base_data['sector_servicio'].unique())
+    filtro_proyecto = st.sidebar.multiselect("Proyecto:", options=sorted(base_data['proyecto'].unique()), default=sorted(base_data['proyecto'].unique()))
+    filtro_anio = st.sidebar.multiselect("Año:", options=sorted(base_data['anio'].unique()), default=sorted(base_data['anio'].unique()))
+    filtro_municipio = st.sidebar.multiselect("Municipio:", options=sorted(base_data['municipio_std'].unique()), default=sorted(base_data['municipio_std'].unique()))
+    filtro_sector = st.sidebar.multiselect("Sector MEAL:", options=sorted(base_data['sector_servicio'].unique()), default=sorted(base_data['sector_servicio'].unique()))
 
+    # Filtrado dinámico
     df_filtrado = base_data[
-        (base_data['socio'].isin(filtro_socio)) &
         (base_data['proyecto'].isin(filtro_proyecto)) &
+        (base_data['anio'].isin(filtro_anio)) &
         (base_data['municipio_std'].isin(filtro_municipio)) &
         (base_data['sector_servicio'].isin(filtro_sector))
     ]
@@ -136,24 +153,30 @@ if f1 is not None and f2 is not None:
     st.markdown("---")
 
     # ---------------------------------------------------------
-    # GRÁFICOS
+    # GRÁFICOS CON VALORES VISIBLES EN LAS BARRAS
     # ---------------------------------------------------------
     col_g1, col_g2 = st.columns(2)
 
     with col_g1:
-        st.subheader("👥 Desglose por Sexo y Rango Etario (Únicos)")
-        fig_demo = px.histogram(
-            df_unicos, 
+        st.subheader("Desglose por Sexo y Rango Etario (Únicos)")
+        
+        df_demo = df_unicos.groupby(['rango_etario', 'sexo_std'], observed=False).size().reset_index(name='count')
+        
+        fig_demo = px.bar(
+            df_demo, 
             x="rango_etario", 
+            y="count",
             color="sexo_std", 
             barmode="group",
-            labels={"rango_etario": "Rango de Edad", "sexo_std": "Sexo", "count": "Participantes"},
+            text="count",
+            labels={"rango_etario": "Rango de Edad", "sexo_std": "Sexo", "count": "Cantidad"},
             color_discrete_sequence=px.colors.qualitative.Set2
         )
+        fig_demo.update_traces(textposition='outside')
         st.plotly_chart(fig_demo, width="stretch")
 
     with col_g2:
-        st.subheader("🎯 Participantes por Sector de Respuesta MEAL")
+        st.subheader("Participantes por Sector de Respuesta MEAL")
         df_sectores = df_unicos['sector_servicio'].value_counts().reset_index()
         fig_sector = px.pie(
             df_sectores, 
@@ -162,6 +185,7 @@ if f1 is not None and f2 is not None:
             hole=0.4,
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
+        fig_sector.update_traces(textinfo='percent+value')
         st.plotly_chart(fig_sector, width="stretch")
 
     st.markdown("---")
@@ -169,7 +193,7 @@ if f1 is not None and f2 is not None:
     col_m1, col_m2 = st.columns(2)
 
     with col_m1:
-        st.subheader("📍 Ubicación Geográfica en Venezuela (Municipios)")
+        st.subheader("Ubicación Geográfica en Venezuela (Municipios)")
         df_mapa = df_unicos.groupby(['municipio_std', 'lat', 'lon']).size().reset_index(name='participantes')
         
         fig_map = px.scatter_mapbox(
@@ -190,15 +214,19 @@ if f1 is not None and f2 is not None:
         st.plotly_chart(fig_map, width="stretch")
 
     with col_m2:
-        st.subheader("📊 Alcance por Municipio")
+        st.subheader("Alcance por Municipio")
+        df_mun = df_unicos['municipio_std'].value_counts().reset_index()
+        
         fig_mun = px.bar(
-            df_unicos['municipio_std'].value_counts().reset_index(),
+            df_mun,
             x="count", 
             y="municipio_std", 
             orientation="h",
-            labels={"municipio_std": "Municipio", "count": "Participantes"},
+            text="count",
+            labels={"municipio_std": "Municipio", "count": "Cantidad"},
             color_discrete_sequence=['#2E86C1']
         )
+        fig_mun.update_traces(textposition='outside')
         st.plotly_chart(fig_mun, width="stretch")
 
     st.markdown("---")
@@ -206,19 +234,19 @@ if f1 is not None and f2 is not None:
     # ---------------------------------------------------------
     # TABLA BASE ANÓNIMA
     # ---------------------------------------------------------
-    st.subheader("🔒 Base de Datos Anónima (Solo Código Único)")
+    st.subheader("Base de Datos Anónima (Solo Código Único)")
     st.dataframe(
-        df_unicos[['codigo_unico', 'sexo_std', 'edad_num', 'rango_etario', 'estado_std', 'municipio_std', 'parroquia', 'sector_servicio', 'proyecto']],
+        df_unicos[['codigo_unico', 'sexo_std', 'edad_num', 'rango_etario', 'estado_std', 'municipio_std', 'parroquia', 'sector_servicio', 'proyecto', 'anio']],
         width="stretch"
     )
 
-    csv = df_unicos[['codigo_unico', 'sexo_std', 'edad_num', 'rango_etario', 'estado_std', 'municipio_std', 'parroquia', 'sector_servicio', 'proyecto']].to_csv(index=False).encode('utf-8')
+    csv = df_unicos[['codigo_unico', 'sexo_std', 'edad_num', 'rango_etario', 'estado_std', 'municipio_std', 'parroquia', 'sector_servicio', 'proyecto', 'anio']].to_csv(index=False).encode('utf-8')
 
     st.download_button(
-        label="📥 Descargar Base Anónima de Participantes Únicos (CSV)",
+        label="Descargar Base Anónima de Participantes Únicos (CSV)",
         data=csv,
-        file_name="Participantes_Unicos_Anonimizado.csv",
+        file_name="Participantes_Unicos_COOPI.csv",
         mime="text/csv"
     )
 else:
-    st.info("👈 Por favor, carga los dos archivos Excel de SIGA en el menú lateral para desplegar los indicadores del tablero.")
+    st.info("Por favor, carga los dos archivos Excel de SIGA en el menú lateral para desplegar los indicadores del tablero.")
